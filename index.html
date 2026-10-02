@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>GiftAuraH</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { bg: '#030305', accent: '#ff1e38' },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['JetBrains Mono', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body { background: #030305; color: #fff; font-family: 'Inter', sans-serif; }
+  body { overscroll-behavior: none; }
+  .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.06); }
+  .glass-red { background: rgba(255,30,56,0.06); border: 1px solid rgba(255,30,56,0.22); }
+  .glow-red { box-shadow: 0 0 40px rgba(255,30,56,0.35), inset 0 0 30px rgba(255,30,56,0.12); }
+  .rarity-common    { color: #9ca3af; box-shadow: 0 0 24px rgba(156,163,175,0.12); border-color: rgba(156,163,175,0.35); }
+  .rarity-rare      { color: #60a5fa; box-shadow: 0 0 24px rgba(96,165,250,0.18); border-color: rgba(96,165,250,0.4); }
+  .rarity-epic      { color: #a855f7; box-shadow: 0 0 24px rgba(168,85,247,0.22); border-color: rgba(168,85,247,0.45); }
+  .rarity-legendary { color: #f59e0b; box-shadow: 0 0 24px rgba(245,158,11,0.25); border-color: rgba(245,158,11,0.5); }
+  .rarity-mythic    { color: #ff1e38; box-shadow: 0 0 30px rgba(255,30,56,0.45); border-color: rgba(255,30,56,0.65); }
+  .rarity-exclusive { color: #ffffff; box-shadow: 0 0 40px rgba(255,255,255,0.4); border-color: rgba(255,255,255,0.55); }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+  .scanline::before {
+    content:''; position:absolute; inset:0; pointer-events:none; opacity:.35;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px, transparent 1px, transparent 3px);
+  }
+  @keyframes pulse-ring { 0%,100% { transform: scale(1); opacity:.7 } 50% { transform: scale(1.06); opacity:1 } }
+  .pulse-ring { animation: pulse-ring 2.4s ease-in-out infinite; }
+  @keyframes shake { 0%,100% { transform: translateX(0) } 20% { transform: translateX(-6px) } 40% { transform: translateX(6px) } 60% { transform: translateX(-4px) } 80% { transform: translateX(4px) } }
+  .shake { animation: shake .5s ease-in-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: translateY(0) } }
+  .rise { animation: rise .35s ease forwards; }
+  .fade-in { animation: fade .25s ease forwards; }
+  @keyframes fade { from { opacity:0 } to { opacity:1 } }
+</style>
+</head>
+<body class="min-h-screen">
+
+<div id="root" class="max-w-md mx-auto px-4 pt-5 pb-32">
+
+  <header class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-extrabold tracking-tight leading-none">
+        Gift<span class="text-[#ff1e38]">AuraH</span>
+      </h1>
+      <p class="text-[10px] uppercase tracking-widest text-white/35 font-mono mt-1">by Horshmarny</p>
+    </div>
+    <div class="glass rounded-2xl px-3 py-2 flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-[#ff1e38] animate-pulse"></span>
+      <span id="userName" class="text-xs font-medium max-w-[100px] truncate">—</span>
+    </div>
+  </header>
+
+  <main id="view" class="min-h-[60vh]"></main>
+
+</div>
+
+<nav class="fixed bottom-0 left-0 right-0 z-40">
+  <div class="max-w-md mx-auto m-3 glass rounded-2xl p-2 grid grid-cols-4 gap-1" id="nav"></div>
+</nav>
+
+<div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/85 p-6"></div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════╗
+// ║  ВАЖНО: укажи здесь URL своего бэкенда (хостинг бота)   ║
+// ╚══════════════════════════════════════════════════════════╝
+const API_BASE = "https://YOUR_BACKEND_DOMAIN.example";
+
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  tg.setHeaderColor('#030305');
+  tg.setBackgroundColor('#030305');
+  tg.disableVerticalSwipes?.();
+}
+
+const state = {
+  user: null,
+  isAdmin: false,
+  opensLeft: 0,
+  dailyLimit: 3,
+  inventory: [],
+  market: [],
+  tab: 'inventory',
+  busy: false,
+};
+
+const RARITY_LABEL = {
+  common: 'COMMON',
+  rare: 'RARE',
+  epic: 'EPIC',
+  legendary: 'LEGENDARY',
+  mythic: 'MYTHIC',
+  exclusive: 'EXCLUSIVE',
+};
+
+async function api(path, body = {}) {
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initData: tg?.initData || '', ...body }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* -------------------- NAV -------------------- */
+const NAV = [
+  { id: 'inventory', label: 'Инвентарь', icon: '◆' },
+  { id: 'cases',     label: 'Кейсы',     icon: '◇' },
+  { id: 'market',    label: 'Маркет',    icon: '◈' },
+  { id: 'admin',     label: 'Админ',     icon: '⬢', adminOnly: true },
+];
+
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  NAV.filter(n => !n.adminOnly || state.isAdmin).forEach(n => {
+    const btn = el('button',
+      `flex-1 py-2.5 rounded-xl text-[10px] font-semibold flex flex-col items-center gap-1 transition-all ${
+        state.tab === n.id
+          ? 'bg-[#ff1e38]/12 text-[#ff1e38] border border-[#ff1e38]/35'
+          : 'text-white/45 hover:text-white/80 border border-transparent'
+      }`,
+      `<span class="text-base leading-none">${n.icon}</span><span class="font-mono tracking-wider">${n.label.toUpperCase()}</span>`
+    );
+    btn.onclick = () => { state.tab = n.id; renderNav(); render(); };
+    nav.appendChild(btn);
+  });
+}
+
+/* -------------------- VIEW: INVENTORY -------------------- */
+function renderInventory() {
+  const v = document.getElementById('view');
+  v.innerHTML = '';
+
+  const head = el('div', 'flex items-end justify-between mb-4',
+    `<div><h2 class="text-lg font-bold">Инвентарь</h2>
+      <p class="text-[11px] text-white/40 font-mono mt-0.5">${state.inventory.length} активов</p></div>`);
+  v.appendChild(head);
+
+  if (!state.inventory.length) {
+    v.appendChild(el('div', 'glass rounded-2xl p-8 text-center text-white/45 text-sm',
+      'Инвентарь пуст. Открой первый кейс во вкладке «Кейсы».'));
+    return;
+  }
+
+  const grid = el('div', 'grid grid-cols-2 gap-3');
+  state.inventory.forEach((it, i) => {
+    const card = el('div',
+      `relative overflow-hidden rounded-2xl border p-3 rise ${'rarity-' + it.rarity} bg-white/[0.02]`,
+      `
+      <div class="absolute top-2 right-2 text-[9px] font-mono tracking-widest opacity-70">${esc(RARITY_LABEL[it.rarity] || it.rarity)}</div>
+      <div class="relative aspect-square rounded-xl overflow-hidden mb-3 bg-black/40">
+        <img src="${esc(it.image)}" alt="" class="w-full h-full object-cover" loading="lazy" />
+        <div class="absolute bottom-1.5 left-1.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/60 border border-white/10">${esc(it.version)}</div>
+        <div class="absolute bottom-1.5 right-1.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/70 border border-white/10">${esc(it.serial)}</div>
+      </div>
+      <div class="text-[13px] font-semibold leading-tight truncate">${esc(it.name)}</div>
+      <div class="text-[10px] font-mono text-white/35 mt-0.5 truncate">${esc(it.item_id)}</div>
+      `);
+    card.style.animationDelay = (i * 30) + 'ms';
+    grid.appendChild(card);
+  });
+  v.appendChild(grid);
+}
+
+/* -------------------- VIEW: CASES -------------------- */
+function renderCases() {
+  const v = document.getElementById('view');
+  v.innerHTML = '';
+
+  const head = el('div', 'mb-5',
+    `<h2 class="text-lg font-bold">Кейс GiftAuraH</h2>
+     <p class="text-[11px] text-white/40 font-mono mt-0.5">Случайный актив · редкость по весам</p>`);
+  v.appendChild(head);
+
+  const card = el('div', 'relative glass rounded-3xl p-6 overflow-hidden scanline');
+  card.innerHTML = `
+    <div class="relative flex items-center justify-center py-8">
+      <div class="absolute w-40 h-40 rounded-full bg-[#ff1e38]/20 blur-3xl pulse-ring"></div>
+      <div id="caseBox" class="relative w-32 h-32 rounded-2xl border-2 border-[#ff1e38]/60 glass-red glow-red flex items-center justify-center">
+        <span class="text-4xl font-black text-[#ff1e38]">?</span>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 mb-5">
+      <div class="glass rounded-xl p-2 text-center">
+        <div class="text-[9px] font-mono text-white/40">ПОПЫТКИ</div>
+        <div id="opensLeft" class="text-lg font-black text-[#ff1e38]">${state.opensLeft}<span class="text-white/35 text-xs font-normal">/${state.dailyLimit}</span></div>
+      </div>
+      <div class="glass rounded-xl p-2 text-center">
+        <div class="text-[9px] font-mono text-white/40">РЕДКОСТЬ</div>
+        <div class="text-lg font-black">6</div>
+      </div>
+      <div class="glass rounded-xl p-2 text-center">
+        <div class="text-[9px] font-mono text-white/40">ПУЛ</div>
+        <div class="text-lg font-black">${state.market.length || 0}</div>
+      </div>
+    </div>
+    <button id="openBtn" class="w-full py-4 rounded-2xl bg-[#ff1e38] hover:bg-[#ff3350] active:scale-[0.98] transition-all font-bold tracking-wider text-sm uppercase ${state.opensLeft <= 0 ? 'opacity-40 cursor-not-allowed' : ''}">
+      ${state.opensLeft > 0 ? 'Открыть кейс' : 'Лимит исчерпан'}
+    </button>
+    <p class="text-[10px] text-white/35 font-mono mt-3 text-center">Обновление попыток — ежедневно в 00:00 UTC</p>
+  `;
+  v.appendChild(card);
+
+  const btn = card.querySelector('#openBtn');
+  if (state.opensLeft > 0) {
+    btn.onclick = async () => {
+      if (state.busy) return;
+      state.busy = true;
+      btn.disabled = true;
+      btn.textContent = 'Открытие...';
+      const box = card.querySelector('#caseBox');
+      box.classList.add('shake');
+
+      try {
+        const r = await api('/api/open');
+        if (!r.ok) {
+          btn.textContent = 'Ошибка: ' + (r.error || 'unknown');
+        } else {
+          state.opensLeft = r.opens_left;
+          await loadInventory();
+          setTimeout(() => showReveal(r.item), 420);
+        }
+      } catch (e) {
+        btn.textContent = 'Ошибка сети';
+      } finally {
+        setTimeout(() => { box.classList.remove('shake'); state.busy = false; }, 500);
+      }
+    };
+  }
+}
+
+function showReveal(item) {
+  const modal = document.getElementById('modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  modal.innerHTML = `
+    <div class="w-full max-w-sm glass rounded-3xl p-6 text-center fade-in rarity-${item.rarity}">
+      <div class="text-[10px] font-mono tracking-widest opacity-70 mb-2">${esc(RARITY_LABEL[item.rarity] || item.rarity)}</div>
+      <div class="relative aspect-square rounded-2xl overflow-hidden mb-4 border border-white/10">
+        <img src="${esc(item.image)}" class="w-full h-full object-cover" />
+        <div class="absolute bottom-2 left-2 text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-black/70 border border-white/10">${esc(item.version)}</div>
+        <div class="absolute bottom-2 right-2 text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-black/70 border border-white/10">${esc(item.serial)}</div>
+      </div>
+      <div class="text-xl font-black mb-1">${esc(item.name)}</div>
+      <div class="text-[11px] font-mono text-white/40 mb-5">${esc(item.item_id)}</div>
+      <button id="closeModal" class="w-full py-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all font-semibold text-sm">
+        Забрать
+      </button>
+    </div>
+  `;
+  modal.querySelector('#closeModal').onclick = () => {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    render();
+  };
+}
+
+/* -------------------- VIEW: MARKET -------------------- */
+function renderMarket() {
+  const v = document.getElementById('view');
+  v.innerHTML = '';
+
+  v.appendChild(el('div', 'mb-5',
+    `<h2 class="text-lg font-bold">Маркет</h2>
+     <p class="text-[11px] text-white/40 font-mono mt-0.5">Всё, что может выпасть из кейса</p>`));
+
+  const byRarity = {};
+  state.market.forEach(it => {
+    (byRarity[it.rarity] ||= []).push(it);
+  });
+
+  const order = ['exclusive','mythic','legendary','epic','rare','common'];
+  const list = el('div', 'space-y-4');
+
+  order.forEach(r => {
+    if (!byRarity[r]) return;
+    const section = el('div', '');
+    section.appendChild(el('div', `text-[10px] font-mono tracking-widest mb-2 rarity-${r}`, RARITY_LABEL[r] || r.toUpperCase()));
+    const grid = el('div', 'grid grid-cols-2 gap-2');
+    byRarity[r].forEach(it => {
+      const c = el('div', `rounded-2xl border p-2 bg-white/[0.02] rarity-${it.rarity}`,
+        `<div class="flex items-center gap-2">
+          <img src="${esc(it.image)}" class="w-12 h-12 rounded-lg object-cover border border-white/10" />
+          <div class="min-w-0">
+            <div class="text-[12px] font-semibold truncate">${esc(it.name)}</div>
+            <div class="text-[10px] font-mono text-white/40">${esc(it.version)}</div>
+          </div>
+        </div>`);
+      grid.appendChild(c);
+    });
+    section.appendChild(grid);
+    list.appendChild(section);
+  });
+
+  v.appendChild(list);
+}
+
+/* -------------------- VIEW: ADMIN -------------------- */
+function renderAdmin() {
+  const v = document.getElementById('view');
+  v.innerHTML = '';
+
+  v.appendChild(el('div', 'mb-5',
+    `<h2 class="text-lg font-bold flex items-center gap-2">Админ-панель <span class="text-[10px] font-mono px-2 py-0.5 rounded border border-[#ff1e38]/50 text-[#ff1e38]">OWNER</span></h2>
+     <p class="text-[11px] text-white/40 font-mono mt-0.5">Управление активами GiftAuraH</p>`));
+
+  const form = el('div', 'glass rounded-2xl p-4 mb-4');
+  form.innerHTML = `
+    <div class="text-[11px] font-mono tracking-widest text-white/50 mb-3">ВЫДАТЬ АКТИВ</div>
+    <label class="block text-[10px] font-mono text-white/40 mb-1">TELEGRAM ID</label>
+    <input id="admTarget" type="number" placeholder="8552283918" class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/40 border border-white/10 text-sm font-mono focus:border-[#ff1e38]/60 outline-none transition-colors" />
+    <label class="block text-[10px] font-mono text-white/40 mb-1">ПРЕДМЕТ</label>
+    <select id="admItem" class="w-full mb-4 px-3 py-2.5 rounded-xl bg-black/40 border border-white/10 text-sm focus:border-[#ff1e38]/60 outline-none transition-colors"></select>
+    <button id="admGrant" class="w-full py-3 rounded-xl bg-[#ff1e38] hover:bg-[#ff3350] active:scale-[0.98] transition-all font-bold text-sm uppercase tracking-wider">Выдать</button>
+    <p id="admStatus" class="text-[11px] font-mono text-center mt-3 min-h-[14px]"></p>
+  `;
+  v.appendChild(form);
+
+  const sel = form.querySelector('#admItem');
+  state.market.forEach(it => {
+    const o = document.createElement('option');
+    o.value = it.id;
+    o.textContent = `[${RARITY_LABEL[it.rarity] || it.rarity}] ${it.name} · ${it.version}`;
+    sel.appendChild(o);
+  });
+
+  form.querySelector('#admGrant').onclick = async () => {
+    const status = form.querySelector('#admStatus');
+    const target_id = parseInt(form.querySelector('#admTarget').value, 10);
+    const item_id = sel.value;
+    if (!target_id) { status.textContent = '✕ Укажи Telegram ID'; status.className = 'text-[11px] font-mono text-center mt-3 text-red-400'; return; }
+    status.textContent = '...';
+    status.className = 'text-[11px] font-mono text-center mt-3 text-white/60';
+    try {
+      const r = await api('/api/admin/grant', { target_id, item_id });
+      status.textContent = `✓ ${r.item.name} ${r.item.version} ${r.item.serial}`;
+      status.className = 'text-[11px] font-mono text-center mt-3 text-emerald-400';
+    } catch (e) {
+      status.textContent = '✕ Ошибка: ' + e.message;
+      status.className = 'text-[11px] font-mono text-center mt-3 text-red-400';
+    }
+  };
+
+  const usersBox = el('div', 'glass rounded-2xl p-4');
+  usersBox.innerHTML = `<div class="text-[11px] font-mono tracking-widest text-white/50 mb-3">ПОЛЬЗОВАТЕЛИ · ТОП 100</div>
+    <div id="admUsers" class="space-y-2 text-xs font-mono text-white/60">Загрузка...</div>`;
+  v.appendChild(usersBox);
+
+  api('/api/admin/users').then(r => {
+    const box = usersBox.querySelector('#admUsers');
+    if (!r.users.length) { box.textContent = '— пусто —'; return; }
+    box.innerHTML = '';
+    r.users.forEach(u => {
+      const row = el('div', 'flex items-center justify-between py-1.5 border-b border-white/5 last:border-0',
+        `<div class="min-w-0">
+          <div class="text-white/85 truncate">${esc(u.first_name || '—')} ${u.username ? '@' + esc(u.username) : ''}</div>
+          <div class="text-[10px] text-white/35">ID: ${u.user_id}</div>
+        </div>
+        <div class="text-[10px] text-[#ff1e38] font-bold">${u.opens_today}/3</div>`);
+      box.appendChild(row);
+    });
+  }).catch(() => {
+    usersBox.querySelector('#admUsers').textContent = '— недоступно —';
+  });
+}
+
+/* -------------------- RENDER -------------------- */
+function render() {
+  if (state.tab === 'inventory') renderInventory();
+  else if (state.tab === 'cases') renderCases();
+  else if (state.tab === 'market') renderMarket();
+  else if (state.tab === 'admin') renderAdmin();
+}
+
+/* -------------------- DATA -------------------- */
+async function loadMe() {
+  const r = await api('/api/me');
+  state.user = r.user;
+  state.isAdmin = r.user.is_admin;
+  state.opensLeft = r.user.opens_left;
+  state.dailyLimit = r.user.daily_limit;
+  document.getElementById('userName').textContent =
+    state.user.first_name || state.user.username || ('ID ' + state.user.user_id);
+}
+
+async function loadInventory() {
+  const r = await api('/api/inventory');
+  state.inventory = r.items;
+}
+
+async function loadMarket() {
+  const r = await api('/api/market');
+  state.market = r.items;
+}
+
+/* -------------------- BOOT -------------------- */
+(async () => {
+  try {
+    await Promise.all([loadMe(), loadMarket()]);
+    await loadInventory();
+    renderNav();
+    render();
+  } catch (e) {
+    document.getElementById('view').innerHTML =
+      `<div class="glass rounded-2xl p-6 text-center text-sm text-red-400">
+        Не удалось авторизоваться.<br><span class="text-white/40 font-mono text-xs">${esc(e.message)}</span>
+      </div>`;
+  }
+})();
+</script>
+</body>
+</html>
